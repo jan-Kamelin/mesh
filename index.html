@@ -384,11 +384,12 @@
   #admin-panel {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 10px 24px;
+    padding: 8px 16px;
     display: none;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
     flex-wrap: wrap;
+    flex-shrink: 0;
   }
   #admin-panel.visible { display: flex; }
 
@@ -771,9 +772,11 @@
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
         Admin
       </span>
-      <button class="admin-btn" onclick="adminMuteAll()">Mute All</button>
-      <button class="admin-btn" onclick="adminAnnounce()">Announce</button>
-      <button class="admin-btn danger-btn" onclick="showKickModal()">Kick User…</button>
+      <button class="admin-btn" onclick="adminMuteAll()">🔇 Mute All</button>
+      <button class="admin-btn" onclick="adminUnmuteAll()">🔊 Unmute All</button>
+      <button class="admin-btn" onclick="adminAnnounce()">📢 Announce</button>
+      <button class="admin-btn" onclick="showTransferModal()">👑 Transfer Admin…</button>
+      <button class="admin-btn danger-btn" onclick="showKickModal()">✕ Kick User…</button>
     </div>
 
     <!-- Messages -->
@@ -797,6 +800,19 @@
 </div>
 
 <!-- Modals -->
+<div id="transfer-modal" style="display:none">
+  <div class="modal-backdrop">
+    <div class="modal">
+      <h3>👑 Transfer Admin</h3>
+      <p>Choose someone to give admin powers to. You will become a regular user.</p>
+      <div id="transfer-user-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="font-size:13px;padding:10px" onclick="closeModal('transfer-modal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="kick-modal" style="display:none">
   <div class="modal-backdrop">
     <div class="modal">
@@ -841,7 +857,10 @@ let dmTarget = null;  // peerId or null for group
 let unread = {};      // peerId -> count
 let activeDM = null;  // null = group, peerId = DM view
 let isMuted = false;
+let mutedPeers = new Set(); // peerIds admin has muted
+let adminOverrideId = null; // explicit admin transfer target
 let msgHistory = {};  // key -> [msgs]  (key: 'group' or peerId)
+let pendingConnections = new Set(); // peerIds we're in the process of connecting to
 
 const PEERJS_CONFIG = {
   host: '0.peerjs.com',
@@ -980,45 +999,46 @@ function connectToExistingPeers(skipSlot = -1) {
   for (let i = 0; i < SLOTS; i++) {
     if (i === skipSlot) continue;
     const sid = slotId(i);
+    if (connections[sid] || pendingConnections.has(sid)) continue;
+    pendingConnections.add(sid);
     const c = peer.connect(sid, {
       reliable: true,
       metadata: { name: myName, joinTime: Date.now() }
     });
     c.on('open', () => {
-      if (connections[sid]) return;
+      pendingConnections.delete(sid);
+      if (connections[sid]) { c.close(); return; }
       registerConnection(sid, c);
-      // Send handshake
       send(c, { type: 'hello', name: myName, peerId: myId });
     });
-    c.on('error', () => {}); // slot not in use, ignore
+    c.on('error', () => { pendingConnections.delete(sid); });
   }
 }
 
 // ── CONNECTIONS ─────────────────────────────────────────────
 function handleIncomingConnection(conn) {
   if (conn.metadata && conn.metadata.probe) {
-    // Just a probe to see if slot is taken — accept and close
     conn.on('open', () => setTimeout(() => conn.close(), 100));
     return;
   }
 
   conn.on('open', () => {
     const pid = conn.peer;
-    if (connections[pid]) return;
+    if (connections[pid]) { conn.close(); return; } // deduplicate
     registerConnection(pid, conn);
-    // Send our hello back
     send(conn, { type: 'hello', name: myName, peerId: myId });
-    // Also share our known peers list
     const peerList = Object.entries(peers).map(([id, p]) => ({ id, name: p.name }));
     send(conn, { type: 'peer-list', peers: peerList });
   });
-
-  conn.on('data', data => handleData(conn.peer, data));
-  conn.on('close', () => removePeer(conn.peer));
-  conn.on('error', () => removePeer(conn.peer));
+  // NOTE: do NOT attach data/close/error here — registerConnection does it
 }
 
 function registerConnection(pid, conn) {
+  if (connections[pid] && connections[pid] !== conn) {
+    // Already have a connection to this peer — keep the existing one
+    conn.close();
+    return;
+  }
   connections[pid] = conn;
   conn.on('data', data => handleData(pid, data));
   conn.on('close', () => removePeer(pid));
@@ -1045,25 +1065,38 @@ function handleData(fromId, data) {
         peers[fromId] = { name: data.name || 'anon', conn: connections[fromId] };
         determineAdmin();
         renderPeerList();
-        addSystemMessage(data.name + ' joined the room');
-        // Share peer list
+        addSystemMessage((data.name || 'anon') + ' joined the room');
         const pl = Object.entries(peers).map(([id, p]) => ({ id, name: p.name }));
         if (connections[fromId]) send(connections[fromId], { type: 'peer-list', peers: pl });
       }
       break;
 
+    case 'admin-transfer':
+      // Admin is handing off to us
+      if (data.targetId === myId) {
+        adminOverrideId = myId;
+        determineAdmin();
+        toast('You are now the room admin!', 'success');
+      } else {
+        // Someone else got admin — update our view
+        adminOverrideId = data.targetId;
+        determineAdmin();
+      }
+      break;
+
     case 'peer-list':
-      // Connect to newly discovered peers
       if (data.peers) {
         data.peers.forEach(p => {
-          if (p.id !== myId && !peers[p.id] && !connections[p.id]) {
+          if (p.id !== myId && !peers[p.id] && !connections[p.id] && !pendingConnections.has(p.id)) {
+            pendingConnections.add(p.id);
             const c = peer.connect(p.id, { reliable: true, metadata: { name: myName } });
             c.on('open', () => {
-              if (connections[p.id]) return;
+              pendingConnections.delete(p.id);
+              if (connections[p.id]) { c.close(); return; }
               registerConnection(p.id, c);
               send(c, { type: 'hello', name: myName, peerId: myId });
             });
-            c.on('error', () => {});
+            c.on('error', () => { pendingConnections.delete(p.id); });
           }
         });
       }
@@ -1111,8 +1144,8 @@ function handleData(fromId, data) {
 }
 
 // ── ADMIN ───────────────────────────────────────────────────
-// Admin = peer with the lowest join timestamp (first to arrive)
-// We encode join time in the peerId for simplicity
+// Admin = peer with the lowest join timestamp (first to arrive),
+// unless adminOverrideId is set (explicit transfer).
 function getMyJoinTime() {
   const parts = myId.split('_');
   return parseInt(parts[2]) || 0;
@@ -1124,22 +1157,26 @@ function getPeerJoinTime(pid) {
 }
 
 function determineAdmin() {
-  const myTime = getMyJoinTime();
-  let oldest = myTime;
-  Object.keys(peers).forEach(pid => {
-    const t = getPeerJoinTime(pid);
-    if (t < oldest) oldest = t;
-  });
   const wasAdmin = isAdmin;
-  isAdmin = (oldest === myTime);
-  if (isAdmin !== wasAdmin) {
-    document.getElementById('crown-icon').style.display = isAdmin ? '' : 'none';
-    const adminPanel = document.getElementById('admin-panel');
-    if (isAdmin) adminPanel.classList.add('visible');
-    else adminPanel.classList.remove('visible');
-    if (isAdmin && !wasAdmin) {
-      addSystemMessage('👑 You are now the room admin.');
-    }
+
+  if (adminOverrideId) {
+    isAdmin = (adminOverrideId === myId);
+  } else {
+    const myTime = getMyJoinTime();
+    let oldest = myTime;
+    Object.keys(peers).forEach(pid => {
+      const t = getPeerJoinTime(pid);
+      if (t < oldest) oldest = t;
+    });
+    isAdmin = (oldest === myTime);
+  }
+
+  document.getElementById('crown-icon').style.display = isAdmin ? '' : 'none';
+  const adminPanel = document.getElementById('admin-panel');
+  if (isAdmin) adminPanel.classList.add('visible');
+  else adminPanel.classList.remove('visible');
+  if (isAdmin && !wasAdmin) {
+    addSystemMessage('👑 You are now the room admin.');
   }
 }
 
@@ -1148,6 +1185,13 @@ function adminMuteAll() {
     if (connections[pid]) send(connections[pid], { type: 'admin-mute', targetId: pid });
   });
   addSystemMessage('🔇 Muted all users.');
+}
+
+function adminUnmuteAll() {
+  Object.keys(peers).forEach(pid => {
+    if (connections[pid]) send(connections[pid], { type: 'admin-unmute', targetId: pid });
+  });
+  addSystemMessage('🔊 Unmuted all users.');
 }
 
 function adminAnnounce() {
@@ -1176,6 +1220,32 @@ function renderAnnouncement(name, text) {
   div.innerHTML = `<span style="color:var(--admin);font-weight:700;font-family:Syne,sans-serif">📢 ${escHtml(name)}</span> <span style="color:var(--text)">${escHtml(text)}</span>`;
   document.getElementById('messages').appendChild(div);
   scrollBottom();
+}
+
+function showTransferModal() {
+  const list = document.getElementById('transfer-user-list');
+  list.innerHTML = '';
+  Object.entries(peers).forEach(([pid, p]) => {
+    const btn = document.createElement('button');
+    btn.className = 'admin-btn';
+    btn.style.cssText = 'width:100%;text-align:left;padding:8px 12px;';
+    btn.textContent = '👑 ' + p.name;
+    btn.onclick = () => transferAdmin(pid);
+    list.appendChild(btn);
+  });
+  if (!list.children.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px">No other users in the room.</div>';
+  }
+  document.getElementById('transfer-modal').style.display = '';
+}
+
+function transferAdmin(targetId) {
+  closeModal('transfer-modal');
+  adminOverrideId = targetId;
+  broadcast({ type: 'admin-transfer', targetId });
+  determineAdmin();
+  const name = peers[targetId]?.name || 'them';
+  addSystemMessage(`👑 Admin transferred to ${name}.`);
 }
 
 function showKickModal() {
@@ -1507,6 +1577,9 @@ function leaveRoom() {
   activeDM = null;
   isAdmin = false;
   isMuted = false;
+  adminOverrideId = null;
+  pendingConnections = new Set();
+  mutedPeers = new Set();
   document.getElementById('app').classList.remove('active');
   document.getElementById('lobby').style.display = 'flex';
   document.getElementById('crown-icon').style.display = 'none';
