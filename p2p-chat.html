@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mesh — P2P Chat</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --border: rgba(255,255,255,0.07);
+    --accent: #7c6cfc;
+    --accent2: #fc6c8f;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --admin: #fcb96c;
+    --dm: #6cfcd8;
+    --system: #4a4a60;
+    --danger: #fc6c6c;
+    --success: #6cfca0;
+    --radius: 14px;
+    --sidebar-w: 240px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── LOBBY ─────────────────────────────────────────────── */
+  #lobby {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    flex-direction: column;
+    gap: 0;
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  #lobby::before {
+    content: '';
+    position: absolute;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,108,252,0.12) 0%, transparent 70%);
+    top: -100px; left: -150px;
+    pointer-events: none;
+  }
+  #lobby::after {
+    content: '';
+    position: absolute;
+    width: 500px; height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(252,108,143,0.08) 0%, transparent 70%);
+    bottom: -80px; right: -100px;
+    pointer-events: none;
+  }
+
+  .lobby-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 48px 44px;
+    width: 420px;
+    max-width: 95vw;
+    position: relative;
+    z-index: 1;
+    animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 6px;
+  }
+
+  .tagline {
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 36px;
+    letter-spacing: 0.5px;
+  }
+
+  .field-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .field { margin-bottom: 18px; }
+
+  input[type="text"] {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input[type="text"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(124,108,252,0.15);
+  }
+  input[type="text"]::placeholder { color: var(--system); }
+
+  #room-code-input {
+    font-size: 22px;
+    letter-spacing: 8px;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.18s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #9c6cfc);
+    color: #fff;
+    margin-bottom: 10px;
+  }
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0;
+    color: var(--system);
+    font-size: 11px;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  #status-msg {
+    margin-top: 14px;
+    font-size: 12px;
+    text-align: center;
+    color: var(--muted);
+    min-height: 18px;
+  }
+
+  /* ── CHAT APP ───────────────────────────────────────────── */
+  #app {
+    display: none;
+    flex: 1;
+    flex-direction: row;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #app.active { display: flex; }
+
+  /* Sidebar */
+  .sidebar {
+    width: var(--sidebar-w);
+    min-width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: 20px 16px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .room-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(124,108,252,0.12);
+    border: 1px solid rgba(124,108,252,0.25);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .my-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .crown { color: var(--admin); font-size: 13px; }
+
+  .online-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+    flex-shrink: 0;
+  }
+
+  .section-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--system);
+    padding: 12px 16px 6px;
+  }
+
+  .peer-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 8px;
+  }
+
+  .peer-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.15s;
+    position: relative;
+  }
+  .peer-item:hover { background: var(--surface2); }
+  .peer-item.active { background: rgba(124,108,252,0.12); }
+
+  .peer-avatar {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+    flex-shrink: 0;
+  }
+
+  .peer-name {
+    font-size: 13px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .peer-tag {
+    font-size: 9px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .tag-admin { background: rgba(252,185,108,0.15); color: var(--admin); }
+  .tag-dm { background: rgba(108,252,216,0.1); color: var(--dm); }
+
+  .unread-badge {
+    background: var(--accent2);
+    color: #fff;
+    border-radius: 10px;
+    font-size: 10px;
+    padding: 1px 6px;
+    font-weight: 700;
+  }
+
+  .sidebar-footer {
+    padding: 12px 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    flex: 1;
+    padding: 9px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-family: 'DM Mono', monospace;
+  }
+  .icon-btn:hover { background: var(--surface2); color: var(--text); border-color: rgba(255,255,255,0.15); }
+  .icon-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* Main chat area */
+  .chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .chat-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .chat-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .chat-subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .header-actions { display: flex; gap: 6px; }
+
+  /* Admin panel */
+  #admin-panel {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: none;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  #admin-panel.visible { display: flex; }
+
+  .admin-label {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--admin);
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .admin-btn {
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(252,185,108,0.25);
+    background: rgba(252,185,108,0.08);
+    color: var(--admin);
+    font-size: 11px;
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    transition: all 0.15s;
+  }
+  .admin-btn:hover { background: rgba(252,185,108,0.18); }
+  .admin-btn.danger-btn {
+    border-color: rgba(252,108,108,0.25);
+    background: rgba(252,108,108,0.08);
+    color: var(--danger);
+  }
+  .admin-btn.danger-btn:hover { background: rgba(252,108,108,0.2); }
+
+  /* Messages */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    scroll-behavior: smooth;
+  }
+
+  .msg-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: msgIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .msg-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 3px;
+    padding-left: 2px;
+  }
+
+  .msg-author {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .msg-time {
+    font-size: 10px;
+    color: var(--system);
+  }
+
+  .msg-bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px 14px 14px 14px;
+    padding: 9px 14px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    max-width: 600px;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  .msg-bubble.own {
+    background: rgba(124,108,252,0.12);
+    border-color: rgba(124,108,252,0.2);
+    border-radius: 14px 4px 14px 14px;
+    align-self: flex-end;
+  }
+
+  .msg-bubble.dm {
+    background: rgba(108,252,216,0.06);
+    border-color: rgba(108,252,216,0.15);
+    border-left: 3px solid var(--dm);
+  }
+
+  .msg-bubble.own.dm {
+    border-right: 3px solid var(--dm);
+    border-left: none;
+  }
+
+  .msg-bubble.system-msg {
+    background: transparent;
+    border: none;
+    color: var(--system);
+    font-size: 11px;
+    text-align: center;
+    padding: 6px;
+    align-self: center;
+    border-radius: 0;
+  }
+
+  .msg-row {
+    display: flex;
+    flex-direction: column;
+  }
+  .msg-row.own { align-items: flex-end; }
+  .msg-row.own .msg-header { flex-direction: row-reverse; }
+
+  .dm-label {
+    font-size: 10px;
+    color: var(--dm);
+    padding: 0 2px;
+    margin-bottom: 1px;
+  }
+  .msg-row.own .dm-label { text-align: right; }
+
+  /* Input */
+  .chat-input-area {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+
+  .input-wrapper {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    align-items: flex-end;
+    padding: 8px 14px;
+    gap: 8px;
+    transition: border-color 0.2s;
+  }
+  .input-wrapper:focus-within {
+    border-color: rgba(124,108,252,0.4);
+    box-shadow: 0 0 0 3px rgba(124,108,252,0.08);
+  }
+
+  #dm-indicator {
+    font-size: 11px;
+    color: var(--dm);
+    white-space: nowrap;
+    padding-bottom: 2px;
+    display: none;
+    cursor: pointer;
+  }
+  #dm-indicator.active { display: flex; align-items: center; gap: 4px; }
+  #dm-indicator:hover { text-decoration: underline; }
+
+  #msg-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 13.5px;
+    color: var(--text);
+    resize: none;
+    max-height: 140px;
+    min-height: 22px;
+    line-height: 1.5;
+    overflow-y: auto;
+  }
+  #msg-input::placeholder { color: var(--system); }
+
+  .send-btn {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent), #9c6cfc);
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .send-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+  .send-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.15s;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 28px 28px;
+    width: 360px;
+    max-width: 92vw;
+    animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .modal h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .modal p { font-size: 12px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
+
+  .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+  .modal-actions .btn { margin: 0; }
+
+  /* Toast */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .toast {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--text);
+    animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+    max-width: 280px;
+  }
+  .toast.success { border-color: rgba(108,252,160,0.3); color: var(--success); }
+  .toast.error { border-color: rgba(252,108,108,0.3); color: var(--danger); }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(12px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 2px; }
+
+  /* Connection status */
+  #conn-status {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  #conn-status.connected { color: var(--success); }
+  #conn-status.disconnected { color: var(--danger); }
+  #conn-status.connecting { color: var(--admin); }
+
+  @media (max-width: 600px) {
+    .sidebar { display: none; }
+    .sidebar.mobile-open { display: flex; position: fixed; inset: 0; z-index: 50; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOBBY ──────────────────────────────────────────────── -->
+<div id="lobby">
+  <div class="lobby-card">
+    <div class="logo">mesh.</div>
+    <div class="tagline">serverless · encrypted in transit · peer-to-peer</div>
+
+    <div class="field">
+      <div class="field-label">Your display name</div>
+      <input type="text" id="username-input" placeholder="anonymous" maxlength="24" autocomplete="off" />
+    </div>
+
+    <div class="field">
+      <div class="field-label">Room code (4 digits)</div>
+      <input type="text" id="room-code-input" placeholder="0000" maxlength="4" autocomplete="off" />
+    </div>
+
+    <button class="btn btn-primary" onclick="joinRoom()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+      Join / Create Room
+    </button>
+
+    <div class="divider">or</div>
+
+    <button class="btn btn-secondary" onclick="generateAndJoin()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      Generate Random Room
+    </button>
+
+    <div id="status-msg"></div>
+  </div>
+</div>
+
+<!-- ── APP ────────────────────────────────────────────────── -->
+<div id="app">
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="room-badge">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Room <span id="room-display" style="font-weight:700;letter-spacing:2px">0000</span>
+      </div>
+      <div class="my-name">
+        <div class="online-dot"></div>
+        <span id="my-name-display">You</span>
+        <span id="crown-icon" class="crown" style="display:none" title="Room admin">👑</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px" id="peer-count-label">connecting…</div>
+    </div>
+
+    <div class="section-label">in this room</div>
+
+    <div class="peer-list" id="peer-list">
+      <!-- peers injected here -->
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="icon-btn" onclick="copyRoomLink()" title="Copy invite link">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        invite
+      </button>
+      <button class="icon-btn danger" onclick="leaveRoom()" title="Leave room">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        leave
+      </button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="chat-main">
+    <div class="chat-header">
+      <div>
+        <div class="chat-title" id="chat-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Group Chat
+        </div>
+        <div class="chat-subtitle" id="chat-subtitle">Everyone in the room</div>
+      </div>
+      <div class="header-actions">
+        <div id="conn-status" class="connecting">
+          <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
+          connecting
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin panel -->
+    <div id="admin-panel">
+      <span class="admin-label">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        Admin
+      </span>
+      <button class="admin-btn" onclick="adminMuteAll()">Mute All</button>
+      <button class="admin-btn" onclick="adminAnnounce()">Announce</button>
+      <button class="admin-btn danger-btn" onclick="showKickModal()">Kick User…</button>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages"></div>
+
+    <!-- Input -->
+    <div class="chat-input-area">
+      <div class="input-wrapper">
+        <div id="dm-indicator" class="active" style="display:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span id="dm-target-name"></span>
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </div>
+        <textarea id="msg-input" rows="1" placeholder="Message everyone…" autocomplete="off"></textarea>
+      </div>
+      <button class="send-btn" onclick="sendMessage()" id="send-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div id="kick-modal" style="display:none">
+  <div class="modal-backdrop">
+    <div class="modal">
+      <h3>Kick a user</h3>
+      <p>Select a user to remove from the room. They will be disconnected and shown a message.</p>
+      <div id="kick-user-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="font-size:13px;padding:10px" onclick="closeModal('kick-modal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="announce-modal" style="display:none">
+  <div class="modal-backdrop">
+    <div class="modal">
+      <h3>📢 Announcement</h3>
+      <p>This will be highlighted as an admin announcement to everyone in the room.</p>
+      <div class="field">
+        <input type="text" id="announce-input" placeholder="Your announcement…" maxlength="200" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="font-size:13px;padding:10px" onclick="closeModal('announce-modal')">Cancel</button>
+        <button class="btn btn-primary" style="font-size:13px;padding:10px" onclick="sendAnnouncement()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ── STATE ───────────────────────────────────────────────────
+let peer = null;
+let myId = '';
+let myName = '';
+let roomCode = '';
+let isAdmin = false;
+let connections = {}; // peerId -> DataConnection
+let peers = {};       // peerId -> { name, conn }
+let dmTarget = null;  // peerId or null for group
+let unread = {};      // peerId -> count
+let activeDM = null;  // null = group, peerId = DM view
+let isMuted = false;
+let msgHistory = {};  // key -> [msgs]  (key: 'group' or peerId)
+
+const PEERJS_CONFIG = {
+  host: '0.peerjs.com',
+  port: 443,
+  path: '/',
+  secure: true,
+  debug: 0
+};
+
+// ── LOBBY ───────────────────────────────────────────────────
+document.getElementById('room-code-input').addEventListener('input', e => {
+  e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+});
+
+document.getElementById('room-code-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinRoom();
+});
+
+document.getElementById('username-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('room-code-input').focus();
+});
+
+function generateAndJoin() {
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  document.getElementById('room-code-input').value = code;
+  joinRoom();
+}
+
+function setStatus(msg, color = 'var(--muted)') {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.style.color = color;
+}
+
+function joinRoom() {
+  const nameInput = document.getElementById('username-input').value.trim();
+  const codeInput = document.getElementById('room-code-input').value.trim();
+
+  if (!codeInput || codeInput.length !== 4 || !/^\d{4}$/.test(codeInput)) {
+    setStatus('Please enter a valid 4-digit room code.', 'var(--danger)');
+    return;
+  }
+
+  myName = nameInput || 'anon_' + Math.floor(Math.random() * 1000);
+  roomCode = codeInput;
+
+  setStatus('Connecting to network…', 'var(--accent)');
+
+  // Create peer with a unique ID
+  const myPeerId = 'mesh_' + roomCode + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  peer = new Peer(myPeerId, PEERJS_CONFIG);
+
+  peer.on('open', id => {
+    myId = id;
+    setStatus('Looking for peers in room ' + roomCode + '…', 'var(--accent)');
+    initApp();
+    discoverAndConnect();
+  });
+
+  peer.on('error', err => {
+    if (err.type === 'peer-unavailable') return; // expected
+    setStatus('Connection error: ' + err.message, 'var(--danger)');
+    console.error('PeerJS error:', err);
+  });
+
+  peer.on('connection', conn => {
+    handleIncomingConnection(conn);
+  });
+}
+
+// ── DISCOVERY ───────────────────────────────────────────────
+// We probe possible peer slots. Each "slot" is a stable named peer
+// that acts as a well-known address for the room. We try to claim
+// slot 0..N and also connect to any already-existing slots.
+const SLOTS = 8;
+
+function slotId(n) {
+  return `mesh_room_${roomCode}_slot${n}`;
+}
+
+let mySlot = -1;
+
+function discoverAndConnect() {
+  // Try to register as a stable slot (for discoverability)
+  tryClaimSlot(0);
+}
+
+function tryClaimSlot(n) {
+  if (n >= SLOTS) {
+    // No slot available, just connect to found peers
+    connectToExistingPeers();
+    return;
+  }
+  const sid = slotId(n);
+  // Try to connect to this slot
+  const testConn = peer.connect(sid, { reliable: true, metadata: { probe: true } });
+  let done = false;
+
+  const timeout = setTimeout(() => {
+    if (done) return;
+    done = true;
+    // Slot is unclaimed — try to register ourselves there
+    const slotPeer = new Peer(sid, PEERJS_CONFIG);
+    slotPeer.on('open', () => {
+      mySlot = n;
+      // Slot claimed. Now connect to other slots.
+      connectToExistingPeers(n);
+    });
+    slotPeer.on('error', () => {
+      // Slot taken between probe and claim, try next
+      tryClaimSlot(n + 1);
+    });
+    slotPeer.on('connection', conn => {
+      handleIncomingConnection(conn);
+    });
+  }, 1200);
+
+  testConn.on('open', () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timeout);
+    // Slot is occupied, try next
+    testConn.close();
+    tryClaimSlot(n + 1);
+  });
+
+  testConn.on('error', () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timeout);
+    tryClaimSlot(n + 1);
+  });
+}
+
+function connectToExistingPeers(skipSlot = -1) {
+  for (let i = 0; i < SLOTS; i++) {
+    if (i === skipSlot) continue;
+    const sid = slotId(i);
+    const c = peer.connect(sid, {
+      reliable: true,
+      metadata: { name: myName, joinTime: Date.now() }
+    });
+    c.on('open', () => {
+      if (connections[sid]) return;
+      registerConnection(sid, c);
+      // Send handshake
+      send(c, { type: 'hello', name: myName, peerId: myId });
+    });
+    c.on('error', () => {}); // slot not in use, ignore
+  }
+}
+
+// ── CONNECTIONS ─────────────────────────────────────────────
+function handleIncomingConnection(conn) {
+  if (conn.metadata && conn.metadata.probe) {
+    // Just a probe to see if slot is taken — accept and close
+    conn.on('open', () => setTimeout(() => conn.close(), 100));
+    return;
+  }
+
+  conn.on('open', () => {
+    const pid = conn.peer;
+    if (connections[pid]) return;
+    registerConnection(pid, conn);
+    // Send our hello back
+    send(conn, { type: 'hello', name: myName, peerId: myId });
+    // Also share our known peers list
+    const peerList = Object.entries(peers).map(([id, p]) => ({ id, name: p.name }));
+    send(conn, { type: 'peer-list', peers: peerList });
+  });
+
+  conn.on('data', data => handleData(conn.peer, data));
+  conn.on('close', () => removePeer(conn.peer));
+  conn.on('error', () => removePeer(conn.peer));
+}
+
+function registerConnection(pid, conn) {
+  connections[pid] = conn;
+  conn.on('data', data => handleData(pid, data));
+  conn.on('close', () => removePeer(pid));
+  conn.on('error', () => removePeer(pid));
+}
+
+// ── MESSAGING PROTOCOL ──────────────────────────────────────
+function send(conn, data) {
+  try { conn.send(data); } catch(e) {}
+}
+
+function broadcast(data, excludeId = null) {
+  Object.entries(connections).forEach(([pid, conn]) => {
+    if (pid !== excludeId) send(conn, data);
+  });
+}
+
+function handleData(fromId, data) {
+  if (!data || !data.type) return;
+
+  switch(data.type) {
+    case 'hello':
+      if (!peers[fromId]) {
+        peers[fromId] = { name: data.name || 'anon', conn: connections[fromId] };
+        determineAdmin();
+        renderPeerList();
+        addSystemMessage(data.name + ' joined the room');
+        // Share peer list
+        const pl = Object.entries(peers).map(([id, p]) => ({ id, name: p.name }));
+        if (connections[fromId]) send(connections[fromId], { type: 'peer-list', peers: pl });
+      }
+      break;
+
+    case 'peer-list':
+      // Connect to newly discovered peers
+      if (data.peers) {
+        data.peers.forEach(p => {
+          if (p.id !== myId && !peers[p.id] && !connections[p.id]) {
+            const c = peer.connect(p.id, { reliable: true, metadata: { name: myName } });
+            c.on('open', () => {
+              if (connections[p.id]) return;
+              registerConnection(p.id, c);
+              send(c, { type: 'hello', name: myName, peerId: myId });
+            });
+            c.on('error', () => {});
+          }
+        });
+      }
+      break;
+
+    case 'message':
+      if (isMuted && !isAdmin) return;
+      receiveMessage(fromId, data);
+      break;
+
+    case 'dm':
+      receiveDM(fromId, data);
+      break;
+
+    case 'announce':
+      receiveAnnouncement(fromId, data);
+      break;
+
+    case 'admin-mute':
+      if (data.targetId === myId) {
+        isMuted = true;
+        addSystemMessage('⚠️ You have been muted by the admin.');
+        toast('You were muted by the admin', 'error');
+      }
+      break;
+
+    case 'admin-unmute':
+      if (data.targetId === myId) {
+        isMuted = false;
+        addSystemMessage('✓ You have been unmuted.');
+      }
+      break;
+
+    case 'kick':
+      if (data.targetId === myId) {
+        toast('You were removed by the admin', 'error');
+        setTimeout(() => leaveRoom(), 1000);
+      }
+      break;
+
+    case 'bye':
+      removePeer(fromId);
+      break;
+  }
+}
+
+// ── ADMIN ───────────────────────────────────────────────────
+// Admin = peer with the lowest join timestamp (first to arrive)
+// We encode join time in the peerId for simplicity
+function getMyJoinTime() {
+  const parts = myId.split('_');
+  return parseInt(parts[2]) || 0;
+}
+
+function getPeerJoinTime(pid) {
+  const parts = pid.split('_');
+  return parseInt(parts[2]) || 0;
+}
+
+function determineAdmin() {
+  const myTime = getMyJoinTime();
+  let oldest = myTime;
+  Object.keys(peers).forEach(pid => {
+    const t = getPeerJoinTime(pid);
+    if (t < oldest) oldest = t;
+  });
+  const wasAdmin = isAdmin;
+  isAdmin = (oldest === myTime);
+  if (isAdmin !== wasAdmin) {
+    document.getElementById('crown-icon').style.display = isAdmin ? '' : 'none';
+    const adminPanel = document.getElementById('admin-panel');
+    if (isAdmin) adminPanel.classList.add('visible');
+    else adminPanel.classList.remove('visible');
+    if (isAdmin && !wasAdmin) {
+      addSystemMessage('👑 You are now the room admin.');
+    }
+  }
+}
+
+function adminMuteAll() {
+  Object.keys(peers).forEach(pid => {
+    if (connections[pid]) send(connections[pid], { type: 'admin-mute', targetId: pid });
+  });
+  addSystemMessage('🔇 Muted all users.');
+}
+
+function adminAnnounce() {
+  document.getElementById('announce-input').value = '';
+  document.getElementById('announce-modal').style.display = '';
+  setTimeout(() => document.getElementById('announce-input').focus(), 50);
+}
+
+function sendAnnouncement() {
+  const text = document.getElementById('announce-input').value.trim();
+  if (!text) return;
+  closeModal('announce-modal');
+  const data = { type: 'announce', name: myName, text, time: Date.now() };
+  broadcast(data);
+  renderAnnouncement(myName, text);
+}
+
+function receiveAnnouncement(fromId, data) {
+  if (!peers[fromId]) return;
+  renderAnnouncement(data.name, data.text);
+}
+
+function renderAnnouncement(name, text) {
+  const div = document.createElement('div');
+  div.style.cssText = 'background:rgba(252,185,108,0.08);border:1px solid rgba(252,185,108,0.2);border-radius:10px;padding:10px 16px;margin:8px 0;font-size:12.5px;';
+  div.innerHTML = `<span style="color:var(--admin);font-weight:700;font-family:Syne,sans-serif">📢 ${escHtml(name)}</span> <span style="color:var(--text)">${escHtml(text)}</span>`;
+  document.getElementById('messages').appendChild(div);
+  scrollBottom();
+}
+
+function showKickModal() {
+  const list = document.getElementById('kick-user-list');
+  list.innerHTML = '';
+  Object.entries(peers).forEach(([pid, p]) => {
+    const btn = document.createElement('button');
+    btn.className = 'admin-btn danger-btn';
+    btn.style.cssText = 'width:100%;text-align:left;padding:8px 12px;';
+    btn.textContent = '✕ ' + p.name;
+    btn.onclick = () => kickUser(pid);
+    list.appendChild(btn);
+  });
+  if (!list.children.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px">No other users in the room.</div>';
+  }
+  document.getElementById('kick-modal').style.display = '';
+}
+
+function kickUser(pid) {
+  closeModal('kick-modal');
+  if (connections[pid]) {
+    send(connections[pid], { type: 'kick', targetId: pid });
+    setTimeout(() => {
+      if (connections[pid]) connections[pid].close();
+      removePeer(pid);
+    }, 500);
+  }
+}
+
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+
+// ── MESSAGES ─────────────────────────────────────────────────
+function receiveMessage(fromId, data) {
+  const name = peers[fromId] ? peers[fromId].name : 'unknown';
+  const key = 'group';
+  if (!msgHistory[key]) msgHistory[key] = [];
+  msgHistory[key].push({ from: fromId, name, text: data.text, time: data.time, type: 'group' });
+
+  if (activeDM === null) {
+    renderMsg({ from: fromId, name, text: data.text, time: data.time, type: 'group' });
+  }
+  // (If in a DM view, group messages don't render but are stored)
+}
+
+function receiveDM(fromId, data) {
+  const name = peers[fromId] ? peers[fromId].name : 'unknown';
+  const key = fromId;
+  if (!msgHistory[key]) msgHistory[key] = [];
+  msgHistory[key].push({ from: fromId, name, text: data.text, time: data.time, type: 'dm' });
+
+  if (activeDM === fromId) {
+    renderMsg({ from: fromId, name, text: data.text, time: data.time, type: 'dm' });
+  } else {
+    unread[fromId] = (unread[fromId] || 0) + 1;
+    renderPeerList();
+    toast(`DM from ${name}: ${data.text.slice(0, 40)}${data.text.length > 40 ? '…' : ''}`);
+  }
+}
+
+function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (isMuted) { toast('You are muted', 'error'); return; }
+
+  input.value = '';
+  input.style.height = '';
+
+  const time = Date.now();
+
+  if (dmTarget) {
+    // Private message to dmTarget
+    const conn = connections[dmTarget];
+    if (!conn) { toast('User disconnected', 'error'); return; }
+    send(conn, { type: 'dm', text, time });
+    const key = dmTarget;
+    if (!msgHistory[key]) msgHistory[key] = [];
+    msgHistory[key].push({ from: myId, name: myName, text, time, type: 'dm' });
+    if (activeDM === dmTarget) {
+      renderMsg({ from: myId, name: myName, text, time, type: 'dm' });
+    }
+  } else {
+    // Group message
+    broadcast({ type: 'message', text, time });
+    const key = 'group';
+    if (!msgHistory[key]) msgHistory[key] = [];
+    msgHistory[key].push({ from: myId, name: myName, text, time, type: 'group' });
+    if (activeDM === null) {
+      renderMsg({ from: myId, name: myName, text, time, type: 'group' });
+    }
+  }
+}
+
+function renderMsg(msg) {
+  const msgs = document.getElementById('messages');
+  const isOwn = msg.from === myId;
+  const isDM = msg.type === 'dm';
+
+  const row = document.createElement('div');
+  row.className = 'msg-row' + (isOwn ? ' own' : '');
+
+  const header = document.createElement('div');
+  header.className = 'msg-header';
+  header.innerHTML = `<span class="msg-author" style="color:${nameColor(msg.name)}">${escHtml(msg.name)}</span><span class="msg-time">${formatTime(msg.time)}</span>`;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble' + (isOwn ? ' own' : '') + (isDM ? ' dm' : '');
+  bubble.textContent = msg.text;
+
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+
+  if (isDM) {
+    const label = document.createElement('div');
+    label.className = 'dm-label';
+    label.textContent = isOwn
+      ? `→ ${escHtml(peers[dmTarget]?.name || 'them')} (private)`
+      : `← private message`;
+    row.appendChild(label);
+  }
+
+  row.appendChild(header);
+  row.appendChild(bubble);
+  group.appendChild(row);
+  msgs.appendChild(group);
+  scrollBottom();
+}
+
+function addSystemMessage(text) {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg-group';
+  div.innerHTML = `<div class="msg-bubble system-msg">${escHtml(text)}</div>`;
+  msgs.appendChild(div);
+  scrollBottom();
+}
+
+function scrollBottom() {
+  const msgs = document.getElementById('messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── PEER LIST ────────────────────────────────────────────────
+function renderPeerList() {
+  const list = document.getElementById('peer-list');
+  list.innerHTML = '';
+
+  // Group chat option
+  const groupItem = document.createElement('div');
+  groupItem.className = 'peer-item' + (activeDM === null ? ' active' : '');
+  groupItem.innerHTML = `
+    <div class="peer-avatar" style="background:rgba(124,108,252,0.15);color:var(--accent)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </div>
+    <span class="peer-name">Everyone</span>
+  `;
+  groupItem.onclick = () => switchView(null);
+  list.appendChild(groupItem);
+
+  // Individual peers
+  const peerCount = Object.keys(peers).length;
+  document.getElementById('peer-count-label').textContent =
+    peerCount === 0 ? 'You\'re alone in this room' :
+    peerCount === 1 ? '1 other person here' :
+    `${peerCount} others here`;
+
+  Object.entries(peers).forEach(([pid, p]) => {
+    const peerTime = getPeerJoinTime(pid);
+    const myTime = getMyJoinTime();
+    const allTimes = [myTime, ...Object.keys(peers).map(getPeerJoinTime)];
+    const isPeerAdmin = peerTime === Math.min(...allTimes) && peerTime !== myTime;
+
+    const item = document.createElement('div');
+    item.className = 'peer-item' + (activeDM === pid ? ' active' : '');
+    const uBadge = unread[pid] ? `<span class="unread-badge">${unread[pid]}</span>` : '';
+    const adminTag = isPeerAdmin ? `<span class="peer-tag tag-admin">admin</span>` : '';
+    item.innerHTML = `
+      <div class="peer-avatar" style="background:${nameColor(p.name)}22;color:${nameColor(p.name)}">${p.name[0].toUpperCase()}</div>
+      <span class="peer-name">${escHtml(p.name)}</span>
+      ${adminTag}
+      ${uBadge}
+    `;
+    item.onclick = () => switchView(pid);
+    item.title = 'Private message ' + p.name;
+    list.appendChild(item);
+  });
+}
+
+function switchView(pid) {
+  activeDM = pid;
+  dmTarget = pid;
+
+  if (pid === null) {
+    // Group view
+    document.getElementById('chat-title').innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Group Chat`;
+    document.getElementById('chat-subtitle').textContent = 'Everyone in the room';
+    document.getElementById('msg-input').placeholder = 'Message everyone…';
+    document.getElementById('dm-indicator').style.display = 'none';
+    dmTarget = null;
+  } else {
+    const name = peers[pid]?.name || 'user';
+    document.getElementById('chat-title').innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      ${escHtml(name)}`;
+    document.getElementById('chat-subtitle').textContent = 'Private conversation';
+    document.getElementById('msg-input').placeholder = `Message ${name} privately…`;
+    const ind = document.getElementById('dm-indicator');
+    ind.style.display = 'flex';
+    document.getElementById('dm-target-name').textContent = name;
+    unread[pid] = 0;
+  }
+
+  // Re-render history
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  const key = pid === null ? 'group' : pid;
+  (msgHistory[key] || []).forEach(msg => renderMsg(msg));
+
+  renderPeerList();
+  scrollBottom();
+  document.getElementById('msg-input').focus();
+}
+
+// ── PEERS LEAVING ────────────────────────────────────────────
+function removePeer(pid) {
+  if (!peers[pid]) return;
+  const name = peers[pid].name;
+  delete peers[pid];
+  delete connections[pid];
+  determineAdmin();
+  renderPeerList();
+  addSystemMessage(name + ' left the room');
+  if (activeDM === pid) {
+    // Switch back to group
+    switchView(null);
+    toast(name + ' left — switched to group chat');
+  }
+}
+
+// ── APP INIT ─────────────────────────────────────────────────
+function initApp() {
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('app').classList.add('active');
+  document.getElementById('room-display').textContent = roomCode;
+  document.getElementById('my-name-display').textContent = myName;
+  document.getElementById('messages').innerHTML = '';
+  msgHistory = {};
+
+  setConnStatus('connecting');
+  setTimeout(() => {
+    if (Object.keys(peers).length === 0) {
+      setConnStatus('connected');
+      determineAdmin();
+      addSystemMessage(`Room ${roomCode} created. Share the room code to invite others!`);
+    }
+  }, 2500);
+
+  peer.on('open', () => setConnStatus('connected'));
+
+  renderPeerList();
+  setupInput();
+  document.getElementById('msg-input').focus();
+}
+
+function setConnStatus(state) {
+  const el = document.getElementById('conn-status');
+  el.className = state;
+  el.innerHTML = `<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg> ${state}`;
+}
+
+function setupInput() {
+  const input = document.getElementById('msg-input');
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  });
+
+  document.getElementById('dm-indicator').addEventListener('click', () => {
+    dmTarget = null;
+    switchView(null);
+  });
+}
+
+// ── UTILS ────────────────────────────────────────────────────
+const COLORS = ['#7c6cfc','#fc6c8f','#6cfcd8','#fcb96c','#6caafc','#fc6cce','#aef76c','#fc9e6c'];
+function nameColor(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return COLORS[h % COLORS.length];
+}
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function copyRoomLink() {
+  const url = location.href.split('?')[0] + '?room=' + roomCode;
+  navigator.clipboard.writeText(url).then(() => toast('Invite link copied!', 'success'));
+}
+
+function leaveRoom() {
+  broadcast({ type: 'bye' });
+  Object.values(connections).forEach(c => { try { c.close(); } catch(e){} });
+  if (peer) peer.destroy();
+  peer = null;
+  connections = {};
+  peers = {};
+  dmTarget = null;
+  activeDM = null;
+  isAdmin = false;
+  isMuted = false;
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('lobby').style.display = 'flex';
+  document.getElementById('crown-icon').style.display = 'none';
+  document.getElementById('admin-panel').classList.remove('visible');
+  setStatus('');
+}
+
+function toast(msg, type = '') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast' + (type ? ' ' + type : '');
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transition = 'opacity 0.3s';
+    setTimeout(() => t.remove(), 300);
+  }, 3500);
+}
+
+// ── URL PARAMS (auto-fill room code) ─────────────────────────
+(function() {
+  const params = new URLSearchParams(location.search);
+  const r = params.get('room');
+  if (r && /^\d{4}$/.test(r)) {
+    document.getElementById('room-code-input').value = r;
+    document.getElementById('username-input').focus();
+  }
+})();
+</script>
+</body>
+</html>
